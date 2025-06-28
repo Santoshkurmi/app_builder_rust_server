@@ -1,0 +1,95 @@
+# Root configuration of the system
+# For better readability, install a TOML syntax highlighting extension
+
+name = "Android App Builder"  # Name of the system which is not compulsary and wont be shown anywhere
+port = 8080   #Port to run the server on
+log_path = "/home/cat/logs"   #Path to store logs, if project specific logs are not provided
+enable_logs = true
+token_path = ".token.txt" #relative path from home directory
+[ssl]
+enable_ssl = false
+certificate_path = "cert.pem" # This are absolute path of the certificate and key
+certificate_key_path = "key.pem" # This are absolute path of the certificate and key
+
+# Root authentication (used if project-specific auth is not provided)
+[auth]
+auth_type = "address"        # Options: "token", "address" or "both"
+address_type = "ip"          # Options: "ip", "hostname"
+allowed_addresses = ["127.0.0.1", "::1", "192.168.1.100"] # can be ip or hostname not both
+allowed_tokens = ["12345678901234567890123456789012"] # list of token if auth_type is token
+
+[project]
+allow_multi_build = true
+max_pending_build = 10
+flush_interval = 5_000 # in millsecond time of interval to flush logs to socket or anywhere must be greater than 500 else ignored
+# base_endpoint_path = "/api/school"
+next_build_delay = 1
+project_path = "/home/cat/builder_projects/builder_user"
+
+
+[project.build]
+payload = [
+    # {type = "file", key2 = "test/a.json", key1 = "a"},
+    # {type = "env", key2 = "NAME", key1 = "name"},
+    # {type = "env", key2 = "AGE", key1 = "age"},
+    # {type = "param",  key1 = "secret"},
+]
+unique_build_key = "package_name"
+
+on_success_failure = "http://127.0.0.1:8000/api/update/logs"
+on_success_error_payload = [
+    {type = "env", key2 = "VERSION", key1 = "version"},
+    # {type = "file", key2 = "src/main.rs", key1 = "main"}
+]
+
+
+[[project.build.run_on_success]]
+command = "echo 'Running on success' && echo 'tiger' "
+title = "Running dummy logs"
+send_to_sock = true
+
+[[project.build.run_on_failure]]
+command = "echo 'Running on failure' && sleep 5"
+title = "Running dummy logs"
+send_to_sock = true
+
+# Now here the main command to handle and run
+
+
+[[project.build.commands]]
+command = "echo 'TIGER' && pwd && sleep 5"
+title = "Running dummy logs"
+send_to_sock = true
+
+
+[[project.build.commands]]
+command = "echo $NAME && echo $AGE && echo {secret} && export VERSION=0.0.1 && sleep 5"
+abort_on_error = true
+title = "Running dummy logs"
+extract_envs = ["VERSION"]
+send_to_sock = true
+
+[[project.build.commands]]
+command = "echo $SECRET && sleep 1 "
+title = "Running dummy logs"
+send_to_sock = true
+
+[[project.build.commands]]
+command = "echo 3 && sleep 1"
+title = "Running dummy logs"
+send_to_sock = true
+
+[[project.build.commands]]
+command = "echo 3 && sleep 1"
+title = "Running dummy logs"
+send_to_sock = true
+
+[[project.build.commands]]
+command = "echo 4 && sleep 1"
+title = "Running dummy logs"
+send_to_sock = true
+
+[[project.build.commands]]
+command = "echo 5 && sleep 5"
+title = "Last Step"
+send_to_sock = true
