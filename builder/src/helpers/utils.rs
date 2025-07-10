@@ -5,7 +5,7 @@ use std::time::Duration;
 use rand::{distributions::Alphanumeric, Rng};
 use regex::Regex;
 use reqwest::Client;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::{ChildStderr, ChildStdout};
 use tokio::time;
 use std::fs::{self, File};
@@ -136,7 +136,7 @@ pub async fn extract_payload(state: &Arc<AppState>,env_map:&mut HashMap<String,S
 }
 
 /// read stdout of the command to build logs and send to socket
-pub async fn read_stdout(
+pub async fn read_stdout_bak(
     stdout: ChildStdout,
     step: usize,
     state: &Arc<AppState>,
@@ -260,9 +260,77 @@ pub async fn read_stdout(
     }
 }
 
-/// read stderr of the command to build logs and send to socket
 
-pub async fn read_stderr(
+
+pub async fn read_stdout(
+    stdout: ChildStdout,
+    step: usize,
+    state: &Arc<AppState>,
+    send_to_sock: bool,
+    bypass_termination: bool,
+    extract_envs: &Vec<String>,
+    env_map: &mut HashMap<String, String>,
+) {
+    let total_step = state.config.project.build.commands.len();
+    let reader = BufReader::new(stdout);
+    let mut lines = reader.lines();
+
+    let mut is_env = false;
+
+    while let Ok(Some(line)) = lines.next_line().await {
+        if line.contains("+_+_+_") {
+            is_env = true;
+            continue;
+        }
+
+        if is_env {
+            if let Some((key, value)) = line.split_once('=') {
+                if extract_envs.contains(&key.to_string()) {
+                    // Save to current_build.payload
+                    if let Some(build) = state.builds.current_build.lock().await.as_mut() {
+                        build.payload.insert(key.to_string(), value.to_string());
+                    }
+                    // Also update env_map
+                    env_map.insert(key.to_string(), value.to_string());
+                }
+            }
+            continue;
+        }
+
+        if !bypass_termination && *state.is_terminated.lock().await {
+            break;
+        }
+
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let log = BuildLog {
+            timestamp: Local::now(),
+            status: Status::Success,
+            step,
+            total_steps: total_step,
+            message: trimmed.to_string(),
+        };
+
+        // Push to in-memory build logs
+        if let Some(build) = state.builds.current_build.lock().await.as_mut() {
+            build.logs.push(log.clone());
+        }
+
+        // Immediately send to socket
+        if send_to_sock {
+            if let Ok(json_str) = serde_json::to_string(&log) {
+                let _ = state.build_sender.send(ChannelMessage::Data(json_str));
+            }
+        }
+    }
+}
+    // Send remaining buffered logs on EOF or termination
+  
+
+pub async fn read_stderr_bak(
     stderr: ChildStderr,
     step: usize,
     state: &Arc<AppState>,
@@ -360,11 +428,237 @@ pub async fn read_stderr(
     }
 }
 
+
+pub async fn read_stderr(
+    stderr: ChildStderr,
+    step: usize,
+    state: &Arc<AppState>,
+    send_to_sock: bool,
+    bypass_termination: bool,
+) {
+    let total_step = state.config.project.build.commands.len();
+    let mut reader = BufReader::new(stderr);
+
+    let mut buf = [0u8; 1024];
+    let mut partial = Vec::new();
+
+    loop {
+        let n = match reader.read(&mut buf).await {
+            Ok(0) => break, // EOF
+            Ok(n) => n,
+            Err(e) => {
+                eprintln!("Error reading stderr: {:?}", e);
+                break;
+            }
+        };
+
+        partial.extend_from_slice(&buf[..n]);
+
+        // Process any complete lines or \r-delimited partial lines
+        while let Some(pos) = partial.iter().position(|&b| b == b'\r' || b == b'\n') {
+            let line_bytes = partial.drain(..=pos).collect::<Vec<u8>>();
+            if let Ok(mut line) = String::from_utf8(line_bytes) {
+                line = line.trim_matches(&['\r', '\n'][..]).to_string();
+                if line.is_empty() {
+                    continue;
+                }
+
+                if !bypass_termination && *state.is_terminated.lock().await {
+                    return;
+                }
+
+                let log = BuildLog {
+                    timestamp: Local::now(),
+                    status: Status::Error,
+                    step,
+                    total_steps: total_step,
+                    message: line,
+                };
+
+                if let Some(build) = state.builds.current_build.lock().await.as_mut() {
+                    build.logs.push(log.clone());
+                }
+
+                if send_to_sock {
+                    if let Ok(json_str) = serde_json::to_string(&log) {
+                        let _ = state.build_sender.send(ChannelMessage::Data(json_str));
+                    }
+                }
+            }
+        }
+    }
+
+    // Handle any remaining data after EOF
+    if !partial.is_empty() {
+        if let Ok(line) = String::from_utf8(partial) {
+            let line = line.trim_matches(&['\r', '\n'][..]).to_string();
+            if !line.is_empty() {
+                let log = BuildLog {
+                    timestamp: Local::now(),
+                    status: Status::Error,
+                    step,
+                    total_steps: total_step,
+                    message: line,
+                };
+
+                if let Some(build) = state.builds.current_build.lock().await.as_mut() {
+                    build.logs.push(log.clone());
+                }
+
+                if send_to_sock {
+                    if let Ok(json_str) = serde_json::to_string(&log) {
+                        let _ = state.build_sender.send(ChannelMessage::Data(json_str));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// read stderr of the command to build logs and send to socket
+pub async fn read_stderr_bak2(
+    stderr: ChildStderr,
+    step: usize,
+    state: &Arc<AppState>,
+    send_to_sock: bool,
+    bypass_termination: bool,
+) {
+    let reader = BufReader::new(stderr);
+    let mut lines = reader.lines();
+    let total_step = state.config.project.build.commands.len();
+
+    while let Ok(Some(line)) = lines.next_line().await {
+        if !bypass_termination && *state.is_terminated.lock().await {
+            break;
+        }
+
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let log = BuildLog {
+            timestamp: Local::now(),
+            status: Status::Error,
+            step,
+            total_steps: total_step,
+            message: trimmed.to_string(),
+        };
+
+        // Store to build logs
+        if let Some(build) = state.builds.current_build.lock().await.as_mut() {
+            build.logs.push(log.clone());
+        }
+
+        // Immediately send over socket
+        if send_to_sock {
+            if let Ok(json_str) = serde_json::to_string(&log) {
+                let _ = state.build_sender.send(ChannelMessage::Data(json_str));
+            }
+        }
+    }
+}
     
 
+pub async fn read_stdout_bak2(
+    stdout: ChildStdout,
+    step: usize,
+    state: &Arc<AppState>,
+    send_to_sock: bool,
+    bypass_termination: bool,
+    extract_envs: &Vec<String>,
+    env_map: &mut HashMap<String, String>,
+) {
+    let total_step = state.config.project.build.commands.len();
+    let mut reader = BufReader::new(stdout);
 
+    let mut partial = Vec::new();
+    let mut is_env = false;
+    let mut buf = [0u8; 1024];
 
+    loop {
+        let n = reader.read(&mut buf).await.expect("failed to read stdout");
+        if n == 0 {
+            break; // EOF
+        }
 
+        partial.extend_from_slice(&buf[..n]);
+
+        // Look for '\r' or '\n' in the buffered data
+        while let Some(pos) = partial.iter().position(|&b| b == b'\r' || b == b'\n' || b == b'\n') {
+            let line_bytes = partial.drain(..=pos).collect::<Vec<u8>>();
+            if let Ok(mut line) = String::from_utf8(line_bytes) {
+                line = line.trim_matches(&['\r', '\n','\t'][..]).to_string();
+                if line.is_empty() {
+                    continue;
+                }
+
+                if line.contains("+_+_+_") {
+                    is_env = true;
+                    continue;
+                }
+
+                if is_env {
+                    if let Some((key, value)) = line.split_once('=') {
+                        if extract_envs.contains(&key.to_string()) {
+                            if let Some(build) = state.builds.current_build.lock().await.as_mut() {
+                                build.payload.insert(key.to_string(), value.to_string());
+                            }
+                            env_map.insert(key.to_string(), value.to_string());
+                        }
+                    }
+                    continue;
+                }
+
+                if !bypass_termination && *state.is_terminated.lock().await {
+                    return;
+                }
+
+                let log = BuildLog {
+                    timestamp: Local::now(),
+                    status: Status::Success,
+                    step,
+                    total_steps: total_step,
+                    message: line,
+                };
+
+                if let Some(build) = state.builds.current_build.lock().await.as_mut() {
+                    build.logs.push(log.clone());
+                }
+
+                if send_to_sock {
+                    if let Ok(json_str) = serde_json::to_string(&log) {
+                        let _ = state.build_sender.send(ChannelMessage::Data(json_str));
+                    }
+                }
+            }
+        }
+    }
+
+    // Handle any remaining data after EOF
+    if !partial.is_empty() {
+        if let Ok(line) = String::from_utf8(partial) {
+            let line = line.trim_matches(&['\r', '\n'][..]).to_string();
+            if !line.is_empty() {
+                let log = BuildLog {
+                    timestamp: Local::now(),
+                    status: Status::Success,
+                    step,
+                    total_steps: total_step,
+                    message: line,
+                };
+                if let Some(build) = state.builds.current_build.lock().await.as_mut() {
+                    build.logs.push(log.clone());
+                }
+                if send_to_sock {
+                    if let Ok(json_str) = serde_json::to_string(&log) {
+                        let _ = state.build_sender.send(ChannelMessage::Data(json_str));
+                    }
+                }
+            }
+        }
+    }
+}
 /// replace placeholders in the template with values
 
 pub fn replace_placeholders(template: &str, values: &HashMap<String, String>) -> String {

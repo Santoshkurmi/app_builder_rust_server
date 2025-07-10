@@ -28,7 +28,7 @@ pub async fn run_build(state: web::Data<AppState>) {
                 status: Status::StartingCommand,
                 step,
                 total_steps: total_step,
-                message: format!("Running command: {}", command.title),
+                message: format!("{}", command.title),
              };
             if command.send_to_sock {
                     let json_str = serde_json::to_string(&log).unwrap();
@@ -65,14 +65,14 @@ pub async fn run_build(state: web::Data<AppState>) {
 
         let  command_with_params = replace_placeholders(&command.command, &param_map);
 
-        let command_with_env = format!("{} && echo '+_+_+_\n' && env", command_with_params);
+        // let command_with_env = format!("{} && echo '+_+_+_\n' && env", command_with_params);
        
-       println!("Running command: {}", command_with_env);
+    //    println!("Running command: {}", command_with_env);
         let  child = Command::new("bash")
             .arg("-c")
             .envs(&env_map)
             .current_dir(state.config.project.project_path.as_str())
-            .arg( &command_with_env )
+            .arg( &command_with_params )
             
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -177,13 +177,13 @@ pub async fn run_on_success_error_payload(state: &web::Data<AppState>,env_map:&m
 
         let  command_with_params = replace_placeholders(&command.command, &param_map);
 
-        let command_with_env = format!("{} && echo '+_+_+_\n' && env", command_with_params);
+        // let command_with_env = format!("{} && echo '+_+_+_\n' && env", command_with_params);
         
         
         let  child = Command::new("bash")
             .arg("-c")
             .envs(&*env_map)
-            .arg( &command_with_env )
+            .arg( &command_with_params )
             .current_dir(state.config.project.project_path.as_str())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

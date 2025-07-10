@@ -1,3 +1,5 @@
+use std::{collections::HashMap, hash::Hash};
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
@@ -40,6 +42,7 @@ pub struct AuthConfig {
     pub address_type: AddressType, // "ip", "hostname"
     pub allowed_addresses: Vec<String>,
     pub allowed_tokens: Vec<String>,
+    pub command_handle_token: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -88,6 +91,8 @@ pub struct BuildConfig {
     pub on_success_failure: String,
     pub on_success_error_payload: Vec<Payload>,
     pub commands: Vec<CommandConfig>,
+    #[serde(default)]
+    pub setup_commands: HashMap<String,String>,
     #[serde(default)]
     pub run_on_success: Vec<CommandConfig>,
     #[serde(default)]

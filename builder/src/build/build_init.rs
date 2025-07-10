@@ -14,6 +14,7 @@ pub async fn build_initialize(
     state: web::Data<AppState>,
 ) -> impl Responder {
 
+    println!("Ip address of client is {}", req.connection_info().realip_remote_addr().unwrap());
   
     if !is_authorized(&req,state.clone()).await {
         

@@ -47,7 +47,6 @@ pub async fn connect_and_stream_ws_project(
     drop(project_token_guard);
 
     // drop(project_token_guard);
-    println!("Connecting to project websocket");
 
 
     let (res, mut session, _msg_stream) = handle(&req, stream)?;

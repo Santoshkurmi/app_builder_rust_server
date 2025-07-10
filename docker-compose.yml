@@ -5,5 +5,5 @@ services:
     build: .
     ports:
       - "8080:8080"
-    container_name: actix_server
+    container_name: builder_user
     restart: unless-stopped

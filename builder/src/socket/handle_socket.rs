@@ -27,12 +27,11 @@ pub async fn connect_and_stream_ws_build(
     |--------------------------------------------------------------------------
     |
     */
-    let unique_build_key = &data.config.project.build.unique_build_key;
+    // let unique_build_key = &data.config.project.build.unique_build_key;
 
     // let build_id = query.get(unique_build_key).clone(); 
     let token = query.get("token").clone(); 
-    println!("Connecting to build websocket");
-    println!("Token: {:?}",token);
+   
     if let None = token {
         return Ok(HttpResponse::Unauthorized().body("Socket Token is Required"));
     }
@@ -44,7 +43,6 @@ pub async fn connect_and_stream_ws_build(
     // let build_id = build_id.unwrap();
     let token = token.unwrap();
 
-    println!("Connecting to build websocket 2");
 
     let state = data.as_ref().clone();
     // let current_token_lock = state.token.lock().await;
@@ -58,7 +56,6 @@ pub async fn connect_and_stream_ws_build(
     if &current_build.socket_token != token {
         return Ok(HttpResponse::Unauthorized().body("Invalid token"));
     }
-    println!("Connecting to build websocket success");
 
 
     let (res, mut session, _msg_stream) = handle(&req, stream)?;

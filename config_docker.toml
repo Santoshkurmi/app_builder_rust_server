@@ -24,8 +24,8 @@ max_pending_build = 10
 flush_interval = 5_000 # in millsecond time of interval to flush logs to socket or anywhere must be greater than 500 else ignored
 # base_endpoint_path = "/api/school"
 next_build_delay = 1
-project_path = "/home/cat/builder_projects/builder_user"
-
+# project_path = "/home/cat/builder_projects/builder_user"
+project_path = "/home/cat/project"
 
 [project.build]
 payload = [

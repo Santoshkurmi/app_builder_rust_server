@@ -5,7 +5,7 @@ pub mod build;
 pub mod helpers;
 pub mod error_success;
 pub mod pending_update;
-
+pub mod commands;
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
 }

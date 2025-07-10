@@ -1,19 +1,20 @@
 use actix_web::{web, App, HttpServer};
+use app_builder::commands::run_command::handle_multipart;
 use app_builder::socket::valid_project_token::set_valid_project_token;
 use app_builder::{build::{abort::{abort, abort_all}, build_init::build_initialize}, models::{app_state::AppState, config::Config}, pending_update::get_pending_update::get_pending_update, socket::{handle_socket::connect_and_stream_ws_build, handle_socket_project::connect_and_stream_ws_project}};
-use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
+// use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     
-    env_logger::init();
     // Load configuration
-    let config = Config::load("/etc/build_server.toml").expect("Failed to load config");
+    // let config = Config::load("/etc/build_server.toml").expect("Failed to load config");
+    let config = Config::load("config.toml").expect("Failed to load config");
     let port = config.port;
-    let ssl_enabled = config.ssl.enable_ssl;
+    // let ssl_enabled = config.ssl.enable_ssl;
     
-    let certificate_key_path = config.ssl.certificate_key_path.clone();
-    let cetificate_path = config.ssl.certificate_path.clone();
+    // let certificate_key_path = config.ssl.certificate_key_path.clone();
+    // let cetificate_path = config.ssl.certificate_path.clone();
 
 
     // Create shared application state
@@ -34,17 +35,21 @@ async fn main() -> std::io::Result<()> {
             .service(web::resource("/api/abort").route(web::post().to(  abort  )))
             .service(web::resource("/api/pending/updates").route(web::get().to(  get_pending_update  )))
             .service(web::resource("/api/set/token").route(web::post().to(  set_valid_project_token  )))
+            .service(web::resource("/api/command").route(web::post().to(  handle_multipart  )))
             ;
         app
     });
+
+    server.bind(("0.0.0.0", port))?.run().await
+
     
-    if ssl_enabled {
-        let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
-        builder.set_private_key_file(&certificate_key_path, SslFiletype::PEM).unwrap();
-        builder.set_certificate_chain_file(&cetificate_path).unwrap();
+    // if ssl_enabled {
+    //     let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
+    //     builder.set_private_key_file(&certificate_key_path, SslFiletype::PEM).unwrap();
+    //     builder.set_certificate_chain_file(&cetificate_path).unwrap();
         
-        server.bind_openssl(format!("0.0.0.0:{}", port), builder)?.run().await
-    } else {
-        server.bind(("0.0.0.0", port))?.run().await
-    }
+    //     server.bind_openssl(format!("0.0.0.0:{}", port), builder)?.run().await
+    // } else {
+    //     server.bind(("0.0.0.0", port))?.run().await
+    // }
 }
