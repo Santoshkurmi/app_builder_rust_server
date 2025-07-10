@@ -70,29 +70,29 @@ setup_client_one = "sh builder setup -p package_name" #need to handle here
 
 
 [[project.build.commands]]
-command = "./builder copy_client_and_assets -p {package_name} -m 'server'"
+command = "bash builder copy_client_and_assets -p {package_name} -m 'server'"
 title = "Copying client config and assets"
 send_to_sock = true
 
 
 [[project.build.commands]]
-command = "./builder patch_in_manifest_and_resources -p {package_name} -m 'server'"
+command = "bash builder patch_in_manifest_and_resources -p {package_name} -m 'server'"
 title = "Patching manifest and resources"
 send_to_sock = true
 
 [[project.build.commands]]
-command = "./builder compile -p {package_name} -m 'server'"
+command = "bash builder compile -p {package_name} -m 'server'"
 title = "Compiling data"
 send_to_sock = true
 
 [[project.build.commands]]
-command = "./builder create_aab -p {package_name} -m 'server'"
+command = "bash builder create_aab -p {package_name} -m 'server'"
 title = "Creating bundle (AAB)"
 send_to_sock = true
 
 
 [[project.build.commands]]
-command = "./builder sign_bundle -p {package_name} -m 'server'"
+command = "bash builder sign_bundle -p {package_name} -m 'server'"
 title = "Signing the bundle(AAB)"
 send_to_sock = true
 
@@ -100,13 +100,13 @@ send_to_sock = true
 
 
 [[project.build.commands]]
-command = "./builder publish_to_store_from_server -p {package_name} -m 'server'"
+command = "bash builder publish_to_store_from_server -p {package_name} -m 'server'"
 title = "Publishing to playstore"
 send_to_sock = true
 
 
 [[project.build.commands]]
-command = "./builder print_env -p {package_name} -m 'server'"
+command = "bash builder print_env -p {package_name} -m 'server'"
 title = "Extracting data to send to erp"
 send_to_sock = true
 
