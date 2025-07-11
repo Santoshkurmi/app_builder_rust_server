@@ -96,6 +96,15 @@ pub async fn run_build(state: web::Data<AppState>) {
         
 
         let status = child.wait().await.expect("Failed to wait on child");
+        
+         if * state.is_terminated.lock().await {
+            child.kill().await.unwrap();
+            let mut  current_build = state.builds.current_build.lock().await;
+            let  current_build = current_build.as_mut().unwrap();
+            current_build.status = Status::Aborted;
+            break;
+        }
+        
         if status.success() {
             let mut  current_build = state.builds.current_build.lock().await;
             let  current_build = current_build.as_mut().unwrap();
@@ -112,13 +121,7 @@ pub async fn run_build(state: web::Data<AppState>) {
             }//handle the case here all the other will also be terminated, handle here
         }
 
-        if * state.is_terminated.lock().await {
-            child.kill().await.unwrap();
-            let mut  current_build = state.builds.current_build.lock().await;
-            let  current_build = current_build.as_mut().unwrap();
-            current_build.status = Status::Aborted;
-            break;
-        }
+       
 
         step += 1;
 

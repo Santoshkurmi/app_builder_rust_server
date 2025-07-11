@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     pub name: String,
     pub port: u16,
+    pub listen_address: String,
     pub log_path: String,
     pub enable_logs: bool,
     pub ssl: SslConfig,

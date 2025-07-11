@@ -3,6 +3,7 @@
 
 name = "Android App Builder"  # Name of the system which is not compulsary and wont be shown anywhere
 port = 8080   #Port to run the server on
+listen_address = "127.0.0.1" #Address to listen on
 log_path = "/home/cat/logs"   #Path to store logs, if project specific logs are not provided
 enable_logs = true
 token_path = ".token.txt" #relative path from home directory

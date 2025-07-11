@@ -5,7 +5,9 @@ edition = "2024"
 
 [dependencies]
 app_builder = {path="../builder"}
-actix-web = { version="4.4" } #, features=["openssl"]
+actix-web = { version = "4.4", default-features = false, features = ["macros"] }
+
+# actix-web = { version="4.4" } #, features=["openssl"]
 actix-ws = "0.2"
 tokio = { version = "1.0", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -13,7 +15,8 @@ serde_json = "1.0"
 toml = "0.8"
 uuid = { version = "1.0", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", default-features = false, features = ["json"] }
+
 # openssl = "0.10"
 futures-util = "0.3"
 tokio-stream = "0.1"
