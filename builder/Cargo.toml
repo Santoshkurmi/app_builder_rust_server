@@ -7,7 +7,7 @@ description = "A short summary of what your crate does"
 
 [dependencies]
 # actix-web = { version="4.4"} #, features=["openssl"] 
-actix-web = { version = "4.4", default-features = false, features = ["macros"] }
+actix-web = { version = "4.4", default-features = false, features = ["macros","rustls"] }
 
 actix-ws = "0.2"
 tokio = { version = "1.0", features = ["full"] }
@@ -28,3 +28,5 @@ base64 = "0.21"
 rand = "0.8"
 dirs = "5.0"
 actix-multipart = "0.6"
+rustls = "0.20"   
+rustls-pemfile = "1.0"

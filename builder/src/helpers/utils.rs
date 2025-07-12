@@ -2,11 +2,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use actix_web::body::None;
+use actix_web::web;
 use rand::{distributions::Alphanumeric, Rng};
 use regex::Regex;
 use reqwest::Client;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
-use tokio::process::{ChildStderr, ChildStdout};
+use tokio::process::{Child, ChildStderr, ChildStdout};
 use tokio::time;
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -135,531 +137,223 @@ pub async fn extract_payload(state: &Arc<AppState>,env_map:&mut HashMap<String,S
     }
 }
 
-/// read stdout of the command to build logs and send to socket
-pub async fn read_stdout_bak(
+
+
+pub async fn read_combined_output(
     stdout: ChildStdout,
+    stderr: ChildStderr,
     step: usize,
-    state: &Arc<AppState>,
+    state: web::Data<AppState>,
     send_to_sock: bool,
-    bypass_termination: bool,
+    flush_interval_ms: u64,
     extract_envs: &Vec<String>,
     env_map: &mut HashMap<String, String>,
 ) {
+    let total_step = state.config.project.build.commands.len();
+    let mut flush_timer = tokio::time::interval(Duration::from_millis(flush_interval_ms));
+    let mut logs: Vec<BuildLog> = Vec::new();
 
-    let total_step = state.config.project.build.commands.len() as usize;
+    let mut stdout_reader = BufReader::new(stdout);
+    let mut stderr_reader = BufReader::new(stderr);
 
-    let reader = &mut BufReader::new(stdout);
-    let mut lines = reader.lines();
+    let mut stdout_buf = Vec::new();
+    let mut stdout_partial = Vec::new();
+    let mut stderr_buf = Vec::new();
+    let mut stderr_partial = Vec::new();
 
+    let mut stdout_done = false;
+    let mut stderr_done = false;
     let mut is_env = false;
-    let mut buffer: Vec<BuildLog> = Vec::new();
-
-
-    let flush_interval = if state.config.project.flush_interval >=500{
-            state.config.project.flush_interval
-        }
-        else{
-            500
-        };
-
-    // Interval timer for flushing logs every 200ms (adjust as needed)
-    let mut interval = time::interval(Duration::from_millis(flush_interval as u64));
-
-    // Set flush interval (e.g. 1 second)
 
     loop {
         tokio::select! {
-            line_opt = lines.next_line() => {
-                match line_opt {
-                    Ok(Some(line)) => {
-                        if line.contains("+_+_+_") {
-                            is_env = true;
-                            continue;
-                        }
+            // Read stdout bytes
+            read = stdout_reader.read_buf(&mut stdout_buf), if !stdout_done => {
+                match read {
+                    Ok(0) => stdout_done = true,
+                    Ok(_) => {
+                        stdout_partial.extend_from_slice(&stdout_buf);
+                        stdout_buf.clear();
 
-                        if is_env {
-                            if let Some((key, value)) = line.split_once('=') {
-                                if extract_envs.contains(&key.to_string()) {
-                                    let mut current_build = state.builds.current_build.lock().await;
-                                    if let Some(build) = current_build.as_mut() {
-                                        build.payload.insert(key.to_string(), value.to_string());
+                        while let Some(pos) = stdout_partial.iter().position(|&b| b == b'\r' || b == b'\n') {
+                            let line_bytes = stdout_partial.drain(..=pos).collect::<Vec<u8>>();
+                            let ending_char = line_bytes.last().copied();
+                            if let Ok( line) = String::from_utf8(line_bytes) {
+
+                                let line_trimmed = line.trim_matches(&['\r', '\n'][..]);
+
+                                if line_trimmed.is_empty() {
+                                    continue;
+                                }
+
+
+                                if line.contains("+_+_+") {
+                                    is_env = true;
+                                    continue;
+                                }
+
+                                if is_env {
+                                    if let Some((key, value)) = line.split_once('=') {
+                                        if extract_envs.contains(&key.to_string()) {
+                                            if let Some(build) = state.builds.current_build.lock().await.as_mut() {
+                                                build.payload.insert(key.to_string(), value.to_string());
+                                            }
+                                            env_map.insert(key.to_string(), value.to_string());
+                                        }
                                     }
-                                    env_map.insert(key.to_string(), value.to_string());
+                                    continue;
+                                }
+
+                                let message = if ending_char == Some(b'\r') {
+                                    format!("\r{}", line_trimmed)
+                                } else {
+                                    line_trimmed.to_string()
+                                };
+
+                                logs.push(BuildLog {
+                                    timestamp: Local::now(),
+                                    status: Status::Success,
+                                    step,
+                                    total_steps: total_step,
+                                    message: message,
+                                });
+                            }
+                        }
+                    },
+                    Err(_) => stdout_done = true,
+                }
+            }
+
+            // Read stderr bytes
+            read = stderr_reader.read_buf(&mut stderr_buf), if !stderr_done => {
+                match read {
+                    Ok(0) => stderr_done = true,
+                    Ok(_) => {
+                        stderr_partial.extend_from_slice(&stderr_buf);
+                        stderr_buf.clear();
+
+                        while let Some(pos) = stderr_partial.iter().position(|&b| b == b'\r' || b == b'\n') {
+                            let line_bytes = stderr_partial.drain(..=pos).collect::<Vec<u8>>();
+                            let ending_char = line_bytes.last().copied();
+                            
+                            if let Ok(mut line) = String::from_utf8(line_bytes) {
+                                line = line.trim_matches(&['\r', '\n'][..]).to_string();
+                                println!("line: {}", line);
+                                if !line.is_empty() {
+
+                                    let message = if ending_char == Some(b'\r') {
+                                        format!("\r{}", line)
+                                    } else {
+                                        line.to_string()
+                                    };
+
+                                    logs.push(BuildLog {
+                                        timestamp: Local::now(),
+                                        status: Status::Error,
+                                        step,
+                                        total_steps: total_step,
+                                        message: message,
+                                    });
                                 }
                             }
-                            continue;
                         }
-
-                        if !bypass_termination && *state.is_terminated.lock().await {
-                            break;
-                        }
-
-                        let trimmed = line.trim();
-                        if trimmed.is_empty() {
-                            continue;
-                        }
-
-                        let log = BuildLog {
-                            timestamp: chrono::Local::now(),
-                            status: Status::Success,
-                            step,
-                            total_steps: total_step,
-                            message: trimmed.to_string(),
-                        };
-
-
-                        // Buffer log for batch sending
-                        buffer.push(log);
-                    }
-                    Ok(None) => {
-                        // EOF
-                        break;
-                    }
-                    Err(e) => {
-                        eprintln!("Error reading stdout line: {:?}", e);
-                        break;
-                    }
+                    },
+                    Err(_) => stderr_done = true,
                 }
             }
-            _ = interval.tick() => {
-                if !buffer.is_empty() {
-                    // Lock once and push all buffered logs
-                    let mut current_build = state.builds.current_build.lock().await;
-                    if let Some(build) = current_build.as_mut() {
-                        for log in &buffer {
-                            build.logs.push(log.clone());
-                        }
-                    }
-                    drop(current_build);
 
-                    if send_to_sock {
-                        let json_str = serde_json::to_string(&buffer).unwrap();
-                        let _ = state.build_sender.send(ChannelMessage::Data(json_str));
-                    }
-
-                    buffer.clear();
-                }
+            // Periodic flush
+            _ = flush_timer.tick() => {
+                flush_logs(&mut logs, send_to_sock, &state).await;
             }
         }
-    }
 
-    // Send remaining buffered logs on EOF or termination
-    if !buffer.is_empty() {
-        let mut current_build = state.builds.current_build.lock().await;
-        if let Some(build) = current_build.as_mut() {
-            for log in &buffer {
-                build.logs.push(log.clone());
-            }
-        }
-        drop(current_build);
-
-        if send_to_sock {
-            let json_str = serde_json::to_string(&buffer).unwrap();
-            let _ = state.build_sender.send(ChannelMessage::Data(json_str));
-        }
-    }
-}
-
-
-
-pub async fn read_stdout(
-    stdout: ChildStdout,
-    step: usize,
-    state: &Arc<AppState>,
-    send_to_sock: bool,
-    bypass_termination: bool,
-    extract_envs: &Vec<String>,
-    env_map: &mut HashMap<String, String>,
-) {
-    let total_step = state.config.project.build.commands.len();
-    let reader = BufReader::new(stdout);
-    let mut lines = reader.lines();
-
-    let mut is_env = false;
-
-    while let Ok(Some(line)) = lines.next_line().await {
-        if line.contains("+_+_+_") {
-            is_env = true;
-            continue;
-        }
-
-        if is_env {
-            if let Some((key, value)) = line.split_once('=') {
-                if extract_envs.contains(&key.to_string()) {
-                    // Save to current_build.payload
-                    if let Some(build) = state.builds.current_build.lock().await.as_mut() {
-                        build.payload.insert(key.to_string(), value.to_string());
-                    }
-                    // Also update env_map
-                    env_map.insert(key.to_string(), value.to_string());
-                }
-            }
-            continue;
-        }
-
-        if !bypass_termination && *state.is_terminated.lock().await {
+        if stdout_done && stderr_done {
             break;
         }
-
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        let log = BuildLog {
-            timestamp: Local::now(),
-            status: Status::Success,
-            step,
-            total_steps: total_step,
-            message: trimmed.to_string(),
-        };
-
-        // Push to in-memory build logs
-        if let Some(build) = state.builds.current_build.lock().await.as_mut() {
-            build.logs.push(log.clone());
-        }
-
-        // Immediately send to socket
-        if send_to_sock {
-            if let Ok(json_str) = serde_json::to_string(&log) {
-                let _ = state.build_sender.send(ChannelMessage::Data(json_str));
-            }
-        }
-    }
-}
-    // Send remaining buffered logs on EOF or termination
-  
-
-pub async fn read_stderr_bak(
-    stderr: ChildStderr,
-    step: usize,
-    state: &Arc<AppState>,
-    send_to_sock: bool,
-    bypass_termination: bool,
-) {
-    let reader = &mut BufReader::new(stderr);
-    let mut lines = reader.lines();
-    let total_step = state.config.project.build.commands.len() as usize;
-
-    // Buffer to hold logs before sending
-    let mut buffer: Vec<BuildLog> = Vec::new();
-
-    let flush_interval = if state.config.project.flush_interval >=500{
-            state.config.project.flush_interval
-        }
-        else{
-            500
-        };
-
-    // Interval timer for flushing logs every 200ms (adjust as needed)
-    let mut interval = time::interval(Duration::from_millis(flush_interval as u64));
-
-    loop {
-        tokio::select! {
-            line_opt = lines.next_line() => {
-                match line_opt {
-                    Ok(Some(line)) => {
-                        if !bypass_termination && *state.is_terminated.lock().await {
-                            break;
-                        }
-
-                        let trimmed = line.trim();
-                        if trimmed.is_empty() {
-                            continue;
-                        }
-
-                        let log = BuildLog {
-                            timestamp: chrono::Local::now(),
-                            status: Status::Error,
-                            step,
-                            total_steps: total_step,
-                            message: trimmed.to_string(),
-                        };
-
-                        // Add log to buffer
-                        buffer.push(log);
-                    }
-                    Ok(None) => {
-                        // EOF reached
-                        break;
-                    }
-                    Err(e) => {
-                        eprintln!("Error reading stderr line: {:?}", e);
-                        break;
-                    }
-                }
-            }
-            _ = interval.tick() => {
-                if !buffer.is_empty() {
-                    // Lock current_build once per flush
-                    let mut current_build = state.builds.current_build.lock().await;
-                    if let Some(build) = current_build.as_mut() {
-                        for log in &buffer {
-                            build.logs.push(log.clone());
-                        }
-                    }
-                    drop(current_build);
-
-                    // Send batch if requested
-                    if send_to_sock {
-                        let json_str = serde_json::to_string(&buffer).unwrap();
-                        let _ = state.build_sender.send(ChannelMessage::Data(json_str));
-                    }
-
-                    buffer.clear();
-                }
-            }
-        }
     }
 
-    // Send any remaining logs after EOF or termination
-    if !buffer.is_empty() {
-        let mut current_build = state.builds.current_build.lock().await;
-        if let Some(build) = current_build.as_mut() {
-            for log in &buffer {
-                build.logs.push(log.clone());
-            }
-        }
-        drop(current_build);
-        if send_to_sock {
-            let json_str = serde_json::to_string(&buffer).unwrap();
-            let _ = state.build_sender.send(ChannelMessage::Data(json_str));
-        }
-    }
-}
-
-
-pub async fn read_stderr(
-    stderr: ChildStderr,
-    step: usize,
-    state: &Arc<AppState>,
-    send_to_sock: bool,
-    bypass_termination: bool,
-) {
-    let total_step = state.config.project.build.commands.len();
-    let mut reader = BufReader::new(stderr);
-
-    let mut buf = [0u8; 1024];
-    let mut partial = Vec::new();
-
-    loop {
-        let n = match reader.read(&mut buf).await {
-            Ok(0) => break, // EOF
-            Ok(n) => n,
-            Err(e) => {
-                eprintln!("Error reading stderr: {:?}", e);
-                break;
-            }
-        };
-
-        partial.extend_from_slice(&buf[..n]);
-
-        // Process any complete lines or \r-delimited partial lines
-        while let Some(pos) = partial.iter().position(|&b| b == b'\r' || b == b'\n') {
-            let line_bytes = partial.drain(..=pos).collect::<Vec<u8>>();
-            if let Ok(mut line) = String::from_utf8(line_bytes) {
-                line = line.trim_matches(&['\r', '\n'][..]).to_string();
-                if line.is_empty() {
-                    continue;
+    // Final stdout flush
+    if !stdout_partial.is_empty() {
+        let ending_char = stdout_partial.last().copied(); // Get the final byte
+    
+        if let Ok(raw_line) = String::from_utf8(stdout_partial.clone()) {
+            let line_trimmed = raw_line.trim_matches(&['\r', '\n'][..]);
+    
+            if !line_trimmed.is_empty() {
+                let mut message = line_trimmed.to_string();
+                if ending_char == Some(b'\r') {
+                    message.push('\r');
                 }
-
-                if !bypass_termination && *state.is_terminated.lock().await {
-                    return;
-                }
-
-                let log = BuildLog {
+    
+                logs.push(BuildLog {
                     timestamp: Local::now(),
-                    status: Status::Error,
+                    status: Status::Success,
                     step,
                     total_steps: total_step,
-                    message: line,
-                };
-
-                if let Some(build) = state.builds.current_build.lock().await.as_mut() {
-                    build.logs.push(log.clone());
-                }
-
-                if send_to_sock {
-                    if let Ok(json_str) = serde_json::to_string(&log) {
-                        let _ = state.build_sender.send(ChannelMessage::Data(json_str));
-                    }
-                }
+                    message,
+                });
             }
         }
     }
-
-    // Handle any remaining data after EOF
-    if !partial.is_empty() {
-        if let Ok(line) = String::from_utf8(partial) {
-            let line = line.trim_matches(&['\r', '\n'][..]).to_string();
-            if !line.is_empty() {
-                let log = BuildLog {
-                    timestamp: Local::now(),
-                    status: Status::Error,
-                    step,
-                    total_steps: total_step,
-                    message: line,
-                };
-
-                if let Some(build) = state.builds.current_build.lock().await.as_mut() {
-                    build.logs.push(log.clone());
-                }
-
-                if send_to_sock {
-                    if let Ok(json_str) = serde_json::to_string(&log) {
-                        let _ = state.build_sender.send(ChannelMessage::Data(json_str));
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// read stderr of the command to build logs and send to socket
-pub async fn read_stderr_bak2(
-    stderr: ChildStderr,
-    step: usize,
-    state: &Arc<AppState>,
-    send_to_sock: bool,
-    bypass_termination: bool,
-) {
-    let reader = BufReader::new(stderr);
-    let mut lines = reader.lines();
-    let total_step = state.config.project.build.commands.len();
-
-    while let Ok(Some(line)) = lines.next_line().await {
-        if !bypass_termination && *state.is_terminated.lock().await {
-            break;
-        }
-
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        let log = BuildLog {
-            timestamp: Local::now(),
-            status: Status::Error,
-            step,
-            total_steps: total_step,
-            message: trimmed.to_string(),
-        };
-
-        // Store to build logs
-        if let Some(build) = state.builds.current_build.lock().await.as_mut() {
-            build.logs.push(log.clone());
-        }
-
-        // Immediately send over socket
-        if send_to_sock {
-            if let Ok(json_str) = serde_json::to_string(&log) {
-                let _ = state.build_sender.send(ChannelMessage::Data(json_str));
-            }
-        }
-    }
-}
     
 
-pub async fn read_stdout_bak2(
-    stdout: ChildStdout,
-    step: usize,
-    state: &Arc<AppState>,
-    send_to_sock: bool,
-    bypass_termination: bool,
-    extract_envs: &Vec<String>,
-    env_map: &mut HashMap<String, String>,
-) {
-    let total_step = state.config.project.build.commands.len();
-    let mut reader = BufReader::new(stdout);
+    // Final stderr flush
+    if !stderr_partial.is_empty() {
+        let ending_char = stderr_partial.last().copied(); // Get the final byte
 
-    let mut partial = Vec::new();
-    let mut is_env = false;
-    let mut buf = [0u8; 1024];
-
-    loop {
-        let n = reader.read(&mut buf).await.expect("failed to read stdout");
-        if n == 0 {
-            break; // EOF
-        }
-
-        partial.extend_from_slice(&buf[..n]);
-
-        // Look for '\r' or '\n' in the buffered data
-        while let Some(pos) = partial.iter().position(|&b| b == b'\r' || b == b'\n' || b == b'\n') {
-            let line_bytes = partial.drain(..=pos).collect::<Vec<u8>>();
-            if let Ok(mut line) = String::from_utf8(line_bytes) {
-                line = line.trim_matches(&['\r', '\n','\t'][..]).to_string();
-                if line.is_empty() {
-                    continue;
-                }
-
-                if line.contains("+_+_+_") {
-                    is_env = true;
-                    continue;
-                }
-
-                if is_env {
-                    if let Some((key, value)) = line.split_once('=') {
-                        if extract_envs.contains(&key.to_string()) {
-                            if let Some(build) = state.builds.current_build.lock().await.as_mut() {
-                                build.payload.insert(key.to_string(), value.to_string());
-                            }
-                            env_map.insert(key.to_string(), value.to_string());
-                        }
-                    }
-                    continue;
-                }
-
-                if !bypass_termination && *state.is_terminated.lock().await {
-                    return;
-                }
-
-                let log = BuildLog {
-                    timestamp: Local::now(),
-                    status: Status::Success,
-                    step,
-                    total_steps: total_step,
-                    message: line,
-                };
-
-                if let Some(build) = state.builds.current_build.lock().await.as_mut() {
-                    build.logs.push(log.clone());
-                }
-
-                if send_to_sock {
-                    if let Ok(json_str) = serde_json::to_string(&log) {
-                        let _ = state.build_sender.send(ChannelMessage::Data(json_str));
-                    }
-                }
-            }
-        }
-    }
-
-    // Handle any remaining data after EOF
-    if !partial.is_empty() {
-        if let Ok(line) = String::from_utf8(partial) {
+        if let Ok(line) = String::from_utf8(stderr_partial.clone()) {
             let line = line.trim_matches(&['\r', '\n'][..]).to_string();
             if !line.is_empty() {
-                let log = BuildLog {
+
+                let mut message = line.to_string();
+                if ending_char == Some(b'\r') {
+                    message.push('\r');
+                }
+
+                logs.push(BuildLog {
                     timestamp: Local::now(),
-                    status: Status::Success,
+                    status: Status::Error,
                     step,
                     total_steps: total_step,
-                    message: line,
-                };
-                if let Some(build) = state.builds.current_build.lock().await.as_mut() {
-                    build.logs.push(log.clone());
-                }
-                if send_to_sock {
-                    if let Ok(json_str) = serde_json::to_string(&log) {
-                        let _ = state.build_sender.send(ChannelMessage::Data(json_str));
-                    }
-                }
+                    message,
+                });
             }
         }
     }
+
+    flush_logs(&mut logs,  send_to_sock, &state).await;
 }
-/// replace placeholders in the template with values
+
+
+
+
+
+async fn flush_logs(
+    buffer: &mut Vec<BuildLog>,
+    send_to_sock: bool,
+    state: &Arc<AppState>,
+) {
+    if buffer.is_empty() {
+        return;
+    }
+
+    if let Some(build) = state.builds.current_build.lock().await.as_mut() {
+        build.logs.extend(buffer.iter().cloned());
+    }
+
+    if send_to_sock {
+        for log in buffer.iter() {
+            if let Ok(json_str) = serde_json::to_string(log) {
+                let _ = state.build_sender.send(ChannelMessage::Data(json_str));
+            }
+        }
+    }
+
+    buffer.clear();
+}
+
+// end here
 
 pub fn replace_placeholders(template: &str, values: &HashMap<String, String>) -> String {
     let re = Regex::new(r"\{([^}]+)\}").unwrap();

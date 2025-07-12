@@ -3,6 +3,7 @@ use crate::helpers::utils::{is_path_exits, read_token_from_user_home};
 use super::{config::Config, status::Status};
 use chrono::{DateTime, Local, Utc};
 use serde::{Deserialize, Serialize};
+use tokio::sync::Notify;
 use std::{collections::HashMap, process::exit};
 use std::sync::Arc;
 use tokio::sync::{
@@ -18,6 +19,7 @@ pub struct AppState {
     pub build_sender: broadcast::Sender<ChannelMessage>,
     pub is_queue_running: Arc<Mutex<bool>>,
     pub is_terminated: Arc<Mutex<bool>>,
+    pub termination_notify: Arc<Notify>,
     pub project_token: Arc< Mutex< Option<String> > >,
     pub project_logs:  Arc< Mutex< Vec<ProjectLog> > >,
 }
@@ -123,6 +125,7 @@ impl AppState {
 
         Self {
             config,
+            termination_notify: Arc::new(Notify::new()),
             is_terminated: Arc::new(Mutex::new(false)),
             project_sender,
             build_sender,

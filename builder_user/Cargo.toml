@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 app_builder = {path="../builder"}
-actix-web = { version = "4.4", default-features = false, features = ["macros"] }
+actix-web = { version = "4.4", default-features = false, features = ["macros","rustls"] }
 
 # actix-web = { version="4.4" } #, features=["openssl"]
 actix-ws = "0.2"

@@ -4,7 +4,7 @@ use actix_web::web;
 use chrono::format;
 use tokio::{ process::Command};
 
-use crate::{helpers::utils::{extract_payload, read_stderr, read_stdout, replace_placeholders}, models::{app_state::{ AppState, BuildLog, ChannelMessage, ProjectLog}, config::{CommandConfig}, status::Status}};
+use crate::{helpers::utils::{extract_payload, read_combined_output, replace_placeholders}, models::{app_state::{ AppState, BuildLog, ChannelMessage, ProjectLog}, config::CommandConfig, status::Status}};
 
 /// execute commands and handle the output
 pub async fn run_build(state: web::Data<AppState>) {
@@ -81,44 +81,67 @@ pub async fn run_build(state: web::Data<AppState>) {
 
          
         
+        
         let mut child = child.unwrap();
+        
 
         let  stdout = child.stdout.take().unwrap();
         let  stderr = child.stderr.take().unwrap();
 
-       
-        
-        tokio::join!(
-            read_stdout(stdout, step, &state,command.send_to_sock,false,&command.extract_envs,&mut env_map ),
-            read_stderr(stderr, step, &state,command.send_to_sock,false)
+// Start reading output and waiting for the child **at the same time** in one async task:
+        let (_, wait_result) = tokio::join!(
+            read_combined_output(
+                stdout,
+                stderr,
+                step,
+                state.clone(),
+                command.send_to_sock,
+                state.config.project.flush_interval as u64,
+                &command.extract_envs,
+                &mut env_map,
+            ),
+            async {
+                let status = child.wait().await?;
+                Ok::<_, std::io::Error>(status)
+            }
         );
-        
-        
 
-        let status = child.wait().await.expect("Failed to wait on child");
-        
-         if * state.is_terminated.lock().await {
+
+
+        // Handle possible errors from waiting on child
+        let status:std::process::ExitStatus = match wait_result {
+            Ok(status) => status,
+            Err(e) => {
+                eprintln!("Error waiting for child process: {:?}", e);
+                // panic!("Failed to wait on child process: {:?}", e);
+                // You might want to break or return here depending on your flow
+                // break;
+                return;
+            }
+        };
+
+
+        // Now your existing status-based logic:
+
+        if *state.is_terminated.lock().await {
             child.kill().await.unwrap();
-            let mut  current_build = state.builds.current_build.lock().await;
-            let  current_build = current_build.as_mut().unwrap();
+            let mut current_build = state.builds.current_build.lock().await;
+            let current_build = current_build.as_mut().unwrap();
             current_build.status = Status::Aborted;
             break;
         }
-        
-        if status.success() {
-            let mut  current_build = state.builds.current_build.lock().await;
-            let  current_build = current_build.as_mut().unwrap();
-            current_build.status = Status::Success; //nothing much to do
-            
-        } else {
 
-            let mut  current_build = state.builds.current_build.lock().await;
-            let  current_build = current_build.as_mut().unwrap();
-            current_build.status = Status::Error; //
+        if status.success() {
+            let mut current_build = state.builds.current_build.lock().await;
+            let current_build = current_build.as_mut().unwrap();
+            current_build.status = Status::Success;
+        } else {
+            let mut current_build = state.builds.current_build.lock().await;
+            let current_build = current_build.as_mut().unwrap();
+            current_build.status = Status::Error;
             if command.abort_on_error {
-                // *state.is_terminated.lock().await = true;
                 break;
-            }//handle the case here all the other will also be terminated, handle here
+            }
         }
 
        
@@ -204,19 +227,16 @@ pub async fn run_on_success_error_payload(state: &web::Data<AppState>,env_map:&m
        
         
         tokio::join!(
-            read_stdout(stdout, step, &state,command.send_to_sock,true,&command.extract_envs, env_map ),
-            read_stderr(stderr, step, &state,command.send_to_sock,true)
+            read_combined_output(stdout, stderr, step, state.clone(), command.send_to_sock, state.config.project.flush_interval as u64, &command.extract_envs,  env_map ),
+
         );
         
-    
-
         let status = child.wait().await.expect("Failed to wait on child");
         if !status.success() {
             if command.abort_on_error {
                 break;
             }//handle the case here all the other will also be terminated, handle here
         }
-
 
         step += 1;
 

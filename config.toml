@@ -10,7 +10,7 @@ token_path = ".token.txt" #relative path from home directory
 
 
 [ssl]
-enable_ssl = false
+enable_ssl = true
 certificate_path = "cert.pem" # This are absolute path of the certificate and key
 certificate_key_path = "key.pem" # This are absolute path of the certificate and key
 
@@ -30,7 +30,7 @@ flush_interval = 1_000 # in millsecond time of interval to flush logs to socket 
 # base_endpoint_path = "/api/school"
 next_build_delay = 1
 # project_path = "/home/cat/builder_projects/builder_user"
-project_path = "/home/cat/fast_aab_builder"
+project_path = "/home/cat/builder"
 
 [project.build]
 #this things are expected to be come when doing build, no need for now
@@ -110,7 +110,7 @@ send_to_sock = true
 command = "bash builder print_env -p {package_name} -m 'server'"
 title = "Extracting data to send to erp"
 send_to_sock = true
-
+extract_envs = ["VERSION"]
 
 # 
 
