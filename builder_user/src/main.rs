@@ -2,7 +2,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use actix_web::{web, App, HttpServer};
-use app_builder::commands::run_command::handle_multipart;
+use app_builder::commands::run_command::{abort_server, handle_multipart};
 use app_builder::handle_config::get_set_config::{get_config, update_config};
 use app_builder::socket::valid_project_token::set_valid_project_token;
 use app_builder::ssl::handle_ssl::load_rustls_config;
@@ -49,6 +49,7 @@ async fn main() -> std::io::Result<()> {
             .service(web::resource("/api/command").route(web::post().to(  handle_multipart  )))
             .service(web::resource("/api/get/config").route(web::get().to(  get_config  )))
             .service(web::resource("/api/update/config").route(web::post().to(  update_config  )))
+            .service(web::resource("/api/abort/server").route(web::post().to(  abort_server  )))
             ;
         app
     });

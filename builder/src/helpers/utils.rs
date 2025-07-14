@@ -238,7 +238,6 @@ pub async fn read_combined_output(
                             
                             if let Ok(mut line) = String::from_utf8(line_bytes) {
                                 line = line.trim_matches(&['\r', '\n'][..]).to_string();
-                                println!("line: {}", line);
                                 if !line.is_empty() {
 
                                     let message = if ending_char == Some(b'\r') {

@@ -115,7 +115,7 @@ pub async fn notify_on_build_started(url: &String, buld: &BuildProcess) {
         println!("Done everything");
         }
 
-    }); //wait here until the thread is done
+    }).await; //wait here until the thread is done
 
 }
 

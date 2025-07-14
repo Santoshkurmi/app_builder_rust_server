@@ -45,11 +45,11 @@ pub async fn build_manager(state: web::Data<AppState>) {
         println!("Starting build for {}", build.unique_id);
 
         if !is_first{
-            is_first = false;
             notify_on_build_started(&state.config.project.build.on_success_failure, &build_process).await;
             println!("Notifying build is sending in the background");
         }
         else{
+            is_first = false;
             println!("No notifying as this is the first build");
         }
 
@@ -125,6 +125,11 @@ pub async fn build_manager(state: web::Data<AppState>) {
             let mut current_build = state.builds.current_build.lock().await;
         
             *current_build = None;
+        }
+
+        {
+            let mut project_logs = state.project_logs.lock().await;
+            project_logs.clear();
         }
             
 

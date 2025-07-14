@@ -4,7 +4,7 @@ use futures_util::StreamExt;
 use std::{fs, io::Write, path::Path};
 use std::process::Command;
 
-use crate::helpers::utils::secure_join_path;
+use crate::auth::check_auth::is_authorized;
 use crate::models::app_state::AppState;
 
 pub async fn handle_multipart(req: HttpRequest,state: web::Data<AppState>,mut payload: Multipart) -> impl Responder {
@@ -154,4 +154,19 @@ fn run_bash_command(command_str: &str,base_path: &str) -> (bool, String) {
         }
         Err(e) => (false, format!("Failed to execute command: {}", e)),
     }
+}
+
+
+pub async fn abort_server(req: HttpRequest,state:web::Data<AppState>)->impl Responder{
+
+    if  !is_authorized(&req, state).await {
+        return HttpResponse::Unauthorized().body("🔒 Unauthorized access");
+    }
+
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        std::process::exit(0);
+    });
+
+    return HttpResponse::Ok().body("🛑 Aborting server");
 }
