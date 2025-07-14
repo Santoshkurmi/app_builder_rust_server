@@ -10,16 +10,33 @@ pub async fn get_config(
     req: HttpRequest,
     state: web::Data<AppState>,
 ) -> actix_web::Result<HttpResponse> {
+
+    println!("Getting config");
     if !is_authorized(&req, state.clone()).await {
         return Ok(HttpResponse::Unauthorized().body("Unauthorized"));
     }
+
+    println!("Getting config perfect user");
+
 
     let path = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".config/app_builder/config.toml");
 
-    let contents = fs::read_to_string(&path)?;
+        let contents = match fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Failed to read config file: {}", e);
+            return Ok(HttpResponse::InternalServerError().body("Could not read config"));
+        }
+    };
+
+    println!("Getting config perfect user and path");
+
     let config: Config = toml::from_str(&contents).unwrap();
+
+    println!("Getting config perfect user and path");
+
 
     Ok(HttpResponse::Ok().json(config))
 }
