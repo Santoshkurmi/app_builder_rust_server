@@ -1,14 +1,19 @@
 use actix_multipart::Multipart;
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use futures_util::StreamExt;
+use std::collections::HashMap;
 use std::{fs, io::Write, path::Path};
 use std::process::Command;
 
 use crate::auth::check_auth::is_authorized;
+use crate::helpers::utils::replace_placeholders;
 use crate::models::app_state::AppState;
 
 pub async fn handle_multipart(req: HttpRequest,state: web::Data<AppState>,mut payload: Multipart) -> impl Responder {
     
+    if state.config.auth.command_handle_token.is_empty() {
+        return HttpResponse::BadRequest().body("🚫 Command handle token is not configured");
+    }
 
     let mut is_valid_user = false;
     if let Some(header_token) = req.headers().get("token") {
@@ -33,6 +38,7 @@ pub async fn handle_multipart(req: HttpRequest,state: web::Data<AppState>,mut pa
     let mut is_file: Option<bool> = None;
     let mut command: Option<String> = None;
     let mut file_saved = false;
+    let mut param: Option<String> = None;
 
     let base_path = state.config.project.project_path.clone();
 
@@ -61,6 +67,13 @@ pub async fn handle_multipart(req: HttpRequest,state: web::Data<AppState>,mut pa
                 }
                 let val = std::str::from_utf8(&bytes).unwrap().trim();
                 is_file = Some(matches!(val, "true" | "1" | "yes"));
+            }
+            "param" => {
+                let mut bytes = web::BytesMut::new();
+                while let Some(chunk) = field.next().await {
+                    bytes.extend_from_slice(&chunk.unwrap());
+                }
+                param = Some(String::from_utf8(bytes.to_vec()).unwrap());
             }
 
             "command" => {
@@ -115,8 +128,12 @@ pub async fn handle_multipart(req: HttpRequest,state: web::Data<AppState>,mut pa
     }
 
     let command_script = command_script.unwrap();
+    let mut payload_map = HashMap::new();
+    payload_map.insert("param".to_string(), param.unwrap());
+    
+    let replace_command_script = replace_placeholders(&command_script, &payload_map);
 
-    let (success, output) = run_bash_command(&command_script,&base_path);
+    let (success, output) = run_bash_command(&replace_command_script,&base_path);
 
     if success {
         return HttpResponse::Ok().body(format!("✅ Command executed successfully:\n{}", output));
