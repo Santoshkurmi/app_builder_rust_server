@@ -129,8 +129,10 @@ pub async fn handle_multipart(req: HttpRequest,state: web::Data<AppState>,mut pa
 
     let command_script = command_script.unwrap();
     let mut payload_map = HashMap::new();
-    payload_map.insert("param".to_string(), param.unwrap());
-    
+    if let Some(param ) = param {
+        payload_map.insert("param".to_string(), param);
+    }
+
     let replace_command_script = replace_placeholders(&command_script, &payload_map);
 
     let (success, output) = run_bash_command(&replace_command_script,&base_path);

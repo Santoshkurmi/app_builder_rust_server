@@ -28,20 +28,20 @@ pub async fn build_initialize(
         return HttpResponse::Unauthorized().json(res);
     }
 
-    {
-        let project_token = payload.get("project_token");
-        if project_token.is_none() {
+    // {
+    //     let project_token = payload.get("project_token");
+    //     if project_token.is_none() {
             
-            return HttpResponse::Unauthorized().body("Missing project token key project_token");
-        }
+    //         return HttpResponse::Unauthorized().body("Missing project token key project_token");
+    //     }
 
-        {
-            let project_token = project_token.unwrap();
-            let mut project_token_lock = state.project_token.lock().await;
-            *project_token_lock = Some(project_token.to_string());
-        }
+    //     {
+    //         let project_token = project_token.unwrap();
+    //         let mut project_token_lock = state.project_token.lock().await;
+    //         *project_token_lock = Some(project_token.to_string());
+    //     }
 
-    }
+    // }
 
     let unique_id = payload.get(&state.config.project.build.unique_build_key);
 

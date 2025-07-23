@@ -112,6 +112,7 @@ impl AppState {
             Ok(token) => Some(token),
             Err(_) => None,
         };
+        println!("project token {:?}", project_token);
 
         let is_exist = is_path_exits(&config.project.project_path);
         if !is_exist {

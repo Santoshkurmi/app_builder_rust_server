@@ -24,8 +24,9 @@ pub async fn connect_and_stream_ws_project(
    
 
 
-
+    println!("Reuest come");
     if token.is_none() {
+        println!("token is none");
         return Ok(HttpResponse::Unauthorized().body("Missing token"));
     }
 
@@ -36,11 +37,15 @@ pub async fn connect_and_stream_ws_project(
 
     let project_token_guard = state.project_token.lock().await;
     if project_token_guard.is_none() {
+        println!("Invalid project tokne");
         return Ok(HttpResponse::Unauthorized().body("Invalid Token"));
     }
     let project_token  = project_token_guard.as_ref().unwrap();
     
     if project_token != token {
+        println!("{}, {}", project_token, token);
+        println!("noo equal");
+
         return Ok(HttpResponse::Unauthorized().body("Invalid token"));
     }
 
