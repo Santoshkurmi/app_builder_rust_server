@@ -148,3 +148,12 @@ extract_envs = ["VERSION"]
 # command = "echo 5 && sleep 5"
 # title = "Last Step"
 # send_to_sock = true
+
+[notification]
+callback_url = "http://127.0.0.1:8000/api/handle/notification"
+persistence_path = ".config/app_builder/scheduled_notifications.json"
+delete_only_on_success = false # If true, only deletes from queue if callback returns 2xx success status
+retry_count = 3                # Maximum number of attempts if callback fails
+retry_interval = 60            # Delay in seconds between retries
+
+

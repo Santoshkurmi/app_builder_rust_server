@@ -22,6 +22,7 @@ pub struct AppState {
     pub termination_notify: Arc<Notify>,
     pub project_token: Arc< Mutex< Option<String> > >,
     pub project_logs:  Arc< Mutex< Vec<ProjectLog> > >,
+    pub notification_manager: crate::notification::NotificationManager,
 }
 
 #[derive(Clone,Serialize)]
@@ -124,6 +125,30 @@ impl AppState {
         let (project_sender, _) = broadcast::channel::<ChannelMessage>(100);
         let (build_sender, _) = broadcast::channel::<ChannelMessage>(100);
 
+        let callback_url = config.notification.as_ref().map(|n| n.callback_url.clone());
+        let raw_path = config.notification.as_ref()
+            .and_then(|n| n.persistence_path.clone())
+            .unwrap_or_else(|| ".config/app_builder/scheduled_notifications.json".to_string());
+        let path_buf = std::path::PathBuf::from(&raw_path);
+        let persistence_path = if path_buf.is_absolute() {
+            path_buf
+        } else {
+            dirs::home_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join(path_buf)
+        };
+        let delete_only_on_success = config.notification.as_ref().map(|n| n.delete_only_on_success).unwrap_or(false);
+        let retry_count = config.notification.as_ref().map(|n| n.retry_count).unwrap_or(3);
+        let retry_interval = config.notification.as_ref().map(|n| n.retry_interval).unwrap_or(60);
+
+        let notification_manager = crate::notification::NotificationManager::new(
+            callback_url,
+            persistence_path,
+            delete_only_on_success,
+            retry_count,
+            retry_interval,
+        );
+
         Self {
             config,
             termination_notify: Arc::new(Notify::new()),
@@ -134,6 +159,7 @@ impl AppState {
             builds: BuildState::new(),
             project_token: Arc::new(Mutex::new(project_token)),
             project_logs: Arc::new(Mutex::new(Vec::new())),
+            notification_manager,
         }
     }
 }

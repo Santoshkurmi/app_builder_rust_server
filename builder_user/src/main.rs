@@ -30,7 +30,7 @@ async fn main() -> std::io::Result<()> {
     let listen_address = config.listen_address.clone();
     // Create shared application state
     let app_state = AppState::new(config).await;
-
+    app_state.notification_manager.load_and_reschedule().await;
     
     let app_data = web::Data::new(app_state);
     let http_protcol: &'static str = if ssl_enabled { "https" } else { "http" };
@@ -50,6 +50,7 @@ async fn main() -> std::io::Result<()> {
             .service(web::resource("/api/get/config").route(web::get().to(  get_config  )))
             .service(web::resource("/api/update/config").route(web::post().to(  update_config  )))
             .service(web::resource("/api/abort/server").route(web::post().to(  abort_server  )))
+            .service(web::resource("/api/notification/schedule").route(web::post().to(app_builder::notification::handlers::schedule_notifications)))
             ;
         app
     });

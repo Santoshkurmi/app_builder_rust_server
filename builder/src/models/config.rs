@@ -14,6 +14,20 @@ pub struct Config {
     pub auth: AuthConfig,
     pub project: ProjectConfig,
     pub token_path: String,
+    #[serde(default)]
+    pub notification: Option<NotificationConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct NotificationConfig {
+    pub callback_url: String,
+    pub persistence_path: Option<String>,
+    #[serde(default)]
+    pub delete_only_on_success: bool,
+    #[serde(default = "default_retry_count")]
+    pub retry_count: u32,
+    #[serde(default = "default_retry_interval")]
+    pub retry_interval: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -127,4 +141,12 @@ fn default_to_sock() -> bool {
 
 fn default_on_error() -> bool {
     true
+}
+
+fn default_retry_count() -> u32 {
+    3
+}
+
+fn default_retry_interval() -> u64 {
+    60
 }

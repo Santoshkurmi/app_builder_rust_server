@@ -8,6 +8,7 @@ pub mod pending_update;
 pub mod commands;
 pub mod ssl;
 pub mod handle_config;
+pub mod notification;
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
 }
