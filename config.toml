@@ -10,7 +10,7 @@ token_path = ".token.txt" #relative path from home directory
 
 
 [ssl]
-enable_ssl = true
+enable_ssl = false
 certificate_path = "cert.pem" # This are absolute path of the certificate and key
 certificate_key_path = "key.pem" # This are absolute path of the certificate and key
 
