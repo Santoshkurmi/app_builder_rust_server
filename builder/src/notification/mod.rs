@@ -32,6 +32,9 @@ pub struct NotificationManager {
     pub delete_only_on_success: bool,
     pub retry_count: u32,
     pub retry_interval: u64,
+    pub daily_trigger_enabled: bool,
+    pub daily_trigger_time: Option<String>,
+    pub daily_trigger_interval: Option<u64>,
     pub active_notifications: Arc<Mutex<HashMap<String, HashMap<String, ActiveNotification>>>>,
 }
 
@@ -64,6 +67,9 @@ impl NotificationManager {
         delete_only_on_success: bool,
         retry_count: u32,
         retry_interval: u64,
+        daily_trigger_enabled: bool,
+        daily_trigger_time: Option<String>,
+        daily_trigger_interval: Option<u64>,
     ) -> Self {
         Self {
             callback_url,
@@ -71,6 +77,9 @@ impl NotificationManager {
             delete_only_on_success,
             retry_count,
             retry_interval,
+            daily_trigger_enabled,
+            daily_trigger_time,
+            daily_trigger_interval,
             active_notifications: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -157,6 +166,13 @@ impl NotificationManager {
                         log::info!("Rescheduled notification task {}/{} cancelled", key, id);
                     }
                 }
+            });
+        }
+
+        if self.daily_trigger_enabled {
+            let manager = self.clone();
+            tokio::spawn(async move {
+                manager.run_daily_trigger_loop().await;
             });
         }
     }
@@ -397,6 +413,60 @@ impl NotificationManager {
             _ => Err(format!("Unknown action: {}", action)),
         }
     }
+
+    pub async fn run_daily_trigger_loop(&self) {
+        log::info!("Starting daily/interval trigger loop. Time: {:?}, Interval: {:?}", self.daily_trigger_time, self.daily_trigger_interval);
+
+        if let Some(secs) = self.daily_trigger_interval {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+                self.trigger_event().await;
+            }
+        } else if let Some(time_str) = &self.daily_trigger_time {
+            let parts: Vec<&str> = time_str.split(':').collect();
+            if parts.len() != 3 {
+                log::error!("Invalid daily_trigger_time format: '{}'. Expected 'HH:MM:SS'.", time_str);
+                return;
+            }
+            let hour: u32 = parts[0].parse().unwrap_or(0);
+            let min: u32 = parts[1].parse().unwrap_or(0);
+            let sec: u32 = parts[2].parse().unwrap_or(0);
+
+            loop {
+                let now = chrono::Local::now();
+                let mut target = now.date_naive().and_hms_opt(hour, min, sec)
+                    .unwrap_or(now.naive_local())
+                    .and_local_timezone(chrono::Local)
+                    .unwrap();
+
+                if target <= now {
+                    target = target + chrono::Duration::days(1);
+                }
+
+                let duration = (target - now).to_std().unwrap_or(std::time::Duration::ZERO);
+                log::info!("Next daily trigger scheduled at {} (sleeping for {:?})", target, duration);
+
+                tokio::time::sleep(duration).await;
+                self.trigger_event().await;
+            }
+        }
+    }
+
+    async fn trigger_event(&self) {
+        let trigger_item = ScheduledNotification {
+            id: format!("auto_trigger_{}", uuid::Uuid::new_v4()),
+            key: "auto_trigger".to_string(),
+            r#type: "is_new_event".to_string(),
+            run_at: chrono::Utc::now(),
+            data: serde_json::json!({
+                "message": "Daily auto check for new events"
+            }),
+            attempts: 0,
+        };
+
+        log::info!("Triggering automatic event sync: is_new_event");
+        self.dispatch(trigger_item).await;
+    }
 }
 
 #[cfg(test)]
@@ -415,7 +485,7 @@ mod tests {
         let _ = fs::create_dir_all(&log_path);
         let persistence_path = log_path.join("scheduled_notifications.json");
 
-        let manager = NotificationManager::new(None, persistence_path, false, 3, 60);
+        let manager = NotificationManager::new(None, persistence_path, false, 3, 60, false, None, None);
 
         // 1. Test Add
         let req = ScheduleRequest {
@@ -551,6 +621,9 @@ mod tests {
             true, // delete_only_on_success
             3,    // retry_count
             5,    // retry_interval (5 seconds for quick testing)
+            false,
+            None,
+            None,
         );
 
         let item = ScheduledNotification {

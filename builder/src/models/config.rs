@@ -28,6 +28,10 @@ pub struct NotificationConfig {
     pub retry_count: u32,
     #[serde(default = "default_retry_interval")]
     pub retry_interval: u64,
+    #[serde(default)]
+    pub daily_trigger_enabled: bool,
+    pub daily_trigger_time: Option<String>,
+    pub daily_trigger_interval: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

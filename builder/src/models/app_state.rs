@@ -140,6 +140,9 @@ impl AppState {
         let delete_only_on_success = config.notification.as_ref().map(|n| n.delete_only_on_success).unwrap_or(false);
         let retry_count = config.notification.as_ref().map(|n| n.retry_count).unwrap_or(3);
         let retry_interval = config.notification.as_ref().map(|n| n.retry_interval).unwrap_or(60);
+        let daily_trigger_enabled = config.notification.as_ref().map(|n| n.daily_trigger_enabled).unwrap_or(false);
+        let daily_trigger_time = config.notification.as_ref().and_then(|n| n.daily_trigger_time.clone());
+        let daily_trigger_interval = config.notification.as_ref().and_then(|n| n.daily_trigger_interval);
 
         let notification_manager = crate::notification::NotificationManager::new(
             callback_url,
@@ -147,6 +150,9 @@ impl AppState {
             delete_only_on_success,
             retry_count,
             retry_interval,
+            daily_trigger_enabled,
+            daily_trigger_time,
+            daily_trigger_interval,
         );
 
         Self {
